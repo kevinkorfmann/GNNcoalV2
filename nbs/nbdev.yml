@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "GNNcoalV2"
+  site-url: "https://kevinkorfmann.github.io/GNNcoalV2"
+  description: "Version 2 of GNNcoal"
+  repo-branch: main
+  repo-url: "https://github.com/kevinkorfmann/GNNcoalV2"
