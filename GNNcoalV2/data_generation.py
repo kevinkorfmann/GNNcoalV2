@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['sample_constant_population_size', 'sample_population_size', 'get_population_time', 'simulate_scenario',
            'sample_parameters', 'sample_smooth_population_parameters', 'simulate_tree_sequence', 'generate_sample',
-           'alternative_coalescent_mask']
+           'alternative_coalescent_mask', 'ts_to_data_objects']
 
 # %% ../nbs/data_generation.ipynb 1
 import numpy as np
@@ -13,6 +13,10 @@ from scipy.interpolate import interp1d
 import tskit
 from tqdm import tqdm
 import msprime
+
+from torch_geometric.utils.convert import from_networkx
+import networkx as nx
+import torch
 
 # %% ../nbs/data_generation.ipynb 2
 def sample_constant_population_size(n_min:int=10, n_max:int=100_000, num_time_windows=21) -> list[float]:
@@ -195,10 +199,10 @@ def simulate_tree_sequence(parameters: pd.DataFrame,
     return tss
 
 # %% ../nbs/data_generation.ipynb 10
-def generate_sample(nth_scenario):
+def generate_sample(nth_scenario, num_trees, alpha):
     
     sequence_length = 1_000_000
-    alpha = np.round(np.random.uniform(1.01, 1.99), 2)
+    #alpha = np.round(np.random.uniform(1.01, 1.99), 2)
     population_time , population_size = sample_smooth_population_parameters()
    
     parameter_set = sample_parameters(
@@ -210,15 +214,16 @@ def generate_sample(nth_scenario):
        model=alpha   
     )
 
+    num_replicates = 1
     ts = simulate_tree_sequence(
         parameter_set.iloc[0],
         population_time=population_time,
         segment_length=sequence_length,
         num_replicates=num_replicates, 
-        seed=nth_scenario+1*1000,
+        seed=nth_scenario+1, #+1*1000,
     )[0]
 
-    while ts.num_trees < 500:
+    while ts.num_trees < num_trees:
         sequence_length = sequence_length * 1.2
         ts = simulate_tree_sequence(
             parameter_set.iloc[0],
@@ -249,3 +254,19 @@ def alternative_coalescent_mask(ts, population_time, x_times_std=2, n_trees=500)
     mask2 = population_time < upperbound
     mask = np.logical_and(mask1, mask2)
     return mask
+
+# %% ../nbs/data_generation.ipynb 12
+def ts_to_data_objects(ts, num_trees=500, num_embedding=60, y=None):
+    max_num_nodes = 2 * ts.num_samples - 1
+    data_objects = []
+    for i, tree in enumerate(ts.trees()):
+        if i < num_trees:
+            data = from_networkx(nx.Graph(tree.as_dict_of_dicts()))
+            data.edge_weight = data.branch_length 
+            data.branch_length  = None
+            data.x = torch.eye(max_num_nodes, num_embedding)
+            data.x[data.num_nodes:] = torch.zeros(num_embedding)
+            data.num_nodes = max_num_nodes
+            data.y = y
+            data_objects.append(data)
+    return data_objects

@@ -66,7 +66,7 @@ class GNN(nn.Module):
         if self.linearize: return F.relu(self.linear(x))
         else: return x
 
-# %% ../nbs/gnncoalv2.ipynb 6
+# %% ../nbs/gnncoalv2.ipynb 7
 class DiffPoolConvolutionPart(nn.Module):
     def __init__(self, max_nodes, num_features, num_hidden=64):
         super().__init__()
@@ -74,7 +74,7 @@ class DiffPoolConvolutionPart(nn.Module):
         self.layers = []
         num_nodes = ceil(0.3 * max_nodes)
         
-        for _ in range(2):  
+        for _ in range(3):  
             self.layers.append({
                 'pool': GNN(num_features, num_hidden, num_nodes),
                 'embed': GNN(num_features, num_hidden, num_hidden, linearize=False)
@@ -101,7 +101,7 @@ class DiffPoolConvolutionPart(nn.Module):
         
 #model = GNNcoalV2(max_nodes=19, num_features=60, num_hidden=64,  out_channels=60)
 
-# %% ../nbs/gnncoalv2.ipynb 7
+# %% ../nbs/gnncoalv2.ipynb 8
 class MiniDenseNet(nn.Module):
     def __init__(self, in_features, hidden_features, out_features):
         super(MiniDenseNet, self).__init__()
@@ -117,7 +117,7 @@ class MiniDenseNet(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-# %% ../nbs/gnncoalv2.ipynb 8
+# %% ../nbs/gnncoalv2.ipynb 9
 def mean_over_n(emb, n=10):
     # Unfold the tensor along dimension 1, using size n and step n
     unfolded = emb.unfold(1, n, n)
@@ -125,10 +125,10 @@ def mean_over_n(emb, n=10):
     mean_values = unfolded.mean(dim=-1)
     return mean_values
 
-# %% ../nbs/gnncoalv2.ipynb 9
+# %% ../nbs/gnncoalv2.ipynb 10
 class GNNcoalV2(nn.Module):
     def __init__(self, max_nodes, num_features, num_hidden=64, out_dim=60,
-                 enc_heads = 4, enc_depth=8,
+                 enc_heads = 4, enc_depth=8, num_trees=1000
                 ):
         super().__init__()
 
@@ -139,23 +139,21 @@ class GNNcoalV2(nn.Module):
         self.encoder = Encoder(dim=enc_dim, depth=enc_depth, heads=enc_heads,
                                ff_glu=True, residual_attn=True, flash=True)
 
+        self.positional_encodings = nn.Parameter(torch.randn(num_trees, enc_dim))
         self.demography_head = MiniDenseNet(enc_dim, enc_dim//2, out_dim)
-        self.alpha_head = MiniDenseNet(enc_dim, enc_dim//2, out_dim)
         
 
-        
-
-    def forward(self, x, adj, batch_size, num_trees=500, num_trees_for_alpha=10):
+    def forward(self, x, adj, batch_size, num_trees=500):
         emb, l_total, e_total = self.conv(x, adj, batch_size, num_trees)
+        emb = emb + self.positional_encodings.unsqueeze(0)
         emb = self.encoder(emb)    
         
-        demo_emb = emb.mean(dim=1)
-        alpha_emb = mean_over_n(emb, num_trees_for_alpha)
+        #emb = emb.sum(dim=1)
+        #alpha_emb = mean_over_n(emb, num_trees_for_alpha)
 
-        demography_estimate = self.demography_head(demo_emb)
-        seq_alpha_estimate = self.alpha_head(alpha_emb)
+        emb = self.demography_head(emb)
         
-        return demography_estimate, seq_alpha_estimate, l_total, e_total
+        return emb, l_total, e_total
         
 
 # model = GNNcoalV2(max_nodes=19, num_features=60, num_hidden=64,  out_dim=60,
