@@ -71,14 +71,16 @@ class DiffPoolConvolutionPart(nn.Module):
     def __init__(self, max_nodes, num_features, num_hidden=64):
         super().__init__()
 
-        self.layers = []
+        self.layers = nn.ModuleList([])
         num_nodes = ceil(0.3 * max_nodes)
         
-        for _ in range(3):  
-            self.layers.append({
+        for _ in range(3):
+            layer = nn.ModuleDict({
                 'pool': GNN(num_features, num_hidden, num_nodes),
                 'embed': GNN(num_features, num_hidden, num_hidden, linearize=False)
             })
+            self.layers.append(layer)
+            
             num_features = 3 * num_hidden
             num_nodes = ceil(0.3 * num_nodes)
             
@@ -152,7 +154,6 @@ class GNNcoalV2(nn.Module):
         #alpha_emb = mean_over_n(emb, num_trees_for_alpha)
 
         emb = self.demography_head(emb)
-        
         return emb, l_total, e_total
         
 
