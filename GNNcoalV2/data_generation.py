@@ -3,8 +3,8 @@
 # %% auto 0
 __all__ = ['seed_everything', 'sample_constant_population_size', 'sample_population_size', 'get_population_time',
            'simulate_scenario', 'sample_parameters', 'sample_smooth_population_parameters', 'simulate_tree_sequence',
-           'generate_sample', 'alternative_coalescent_mask', 'ts_to_data_objects', 'calculate_beta_coal_ne_estimate',
-           'generate_batch', 'continously_add_batch_to_queue', 'get_next_batch']
+           'generate_sample', 'mask_smaller_fragments', 'alternative_coalescent_mask', 'ts_to_data_objects',
+           'calculate_beta_coal_ne_estimate', 'generate_batch', 'continously_add_batch_to_queue', 'get_next_batch']
 
 # %% ../nbs/data_generation.ipynb 1
 import numpy as np
@@ -275,6 +275,26 @@ def generate_sample(nth_scenario, num_sim_trees, alpha):
 #     return mask
 
 
+def mask_smaller_fragments(arr):
+    # Find changes in value
+    changes = np.diff(np.insert(arr.astype(int), [0, len(arr)], [0, 0]))
+    # Find the start and end indices of stretches of True values
+    start_indices = np.where(changes == 1)[0]
+    end_indices = np.where(changes == -1)[0]
+    # If there are no stretches of True values, return the original array
+    if len(start_indices) == 0 or len(end_indices) == 0:
+        return arr
+    # Find the longest stretch
+    lengths = end_indices - start_indices
+    longest_index = np.argmax(lengths)
+    # Create a mask of all False values
+    mask = np.zeros_like(arr, dtype=bool)
+    # Set the longest stretch to True in the mask
+    mask[start_indices[longest_index]:end_indices[longest_index]] = True
+    return mask
+
+
+
 def alternative_coalescent_mask(ts, population_time, threshold=10, num_sim_trees=500, nth_tree=1):
     
     #trees = ts.aslist()[0:num_sim_trees:nth_tree]
@@ -292,10 +312,12 @@ def alternative_coalescent_mask(ts, population_time, threshold=10, num_sim_trees
 
     mask = np.zeros(60) != 0
     mask[1:] = hist > threshold
+
+    mask = mask_smaller_fragments(mask)
     
-    start = np.argwhere(mask == 1)[0]
-    end = np.argwhere(mask == 1)[-1]
-    mask[int(start):int(end+1)] = True
+    #start = np.argwhere(mask == 1)[0]
+    #end = np.argwhere(mask == 1)[-1]
+    #mask[int(start):int(end+1)] = True
     return mask
 
 # %% ../nbs/data_generation.ipynb 14
@@ -317,6 +339,61 @@ def ts_to_data_objects(ts, num_sim_trees=500, nth_tree=1, num_embedding=60, y=No
             data_objects.append(data)
     return data_objects
 
+
+# def ts_to_data_objects(ts, num_sim_trees=500, nth_tree=1, num_embedding=60, y=None):
+#     max_num_nodes = 2 * ts.num_samples - 1
+#     data_objects = []
+    
+#     #trees = ts.aslist()[0:num_sim_trees:nth_tree]
+#     for i, tree in enumerate(ts.trees()):
+#         if i < num_sim_trees and i % nth_tree == 0:
+            
+#             data = from_networkx(nx.Graph(tree.as_dict_of_dicts()))
+#             data.edge_weight = data.branch_length 
+#             data.branch_length  = None
+            
+#             data.x = torch.ones(max_num_nodes, num_embedding)
+#             #data.x[data.num_nodes:] = torch.zeros(num_embedding)
+
+#             tree_times = torch.tensor([ts.get_time(node) if node < ts.num_samples else np.log(ts.get_time(node)) for node in tree.nodes()]) 
+#             x = torch.repeat_interleave(tree_times.view(-1, 1), repeats=num_embedding, dim=1)
+#             x = x / 10
+#             data.x[0:x.shape[0], 0:x.shape[1]] = x
+
+            
+            
+#             data.num_nodes = max_num_nodes
+#             data.y = y
+#             data_objects.append(data)
+#     return data_objects
+
+# def ts_to_data_objects(ts, num_sim_trees=500, nth_tree=1, num_embedding=60, y=None):
+#     max_num_nodes = 2 * ts.num_samples - 1
+#     data_objects = []
+    
+#     #trees = ts.aslist()[0:num_sim_trees:nth_tree]
+#     for i, tree in enumerate(ts.trees()):
+#         if i < num_sim_trees and i % nth_tree == 0:
+            
+#             data = from_networkx(nx.Graph(tree.as_dict_of_dicts()))
+#             data.edge_weight = data.branch_length 
+#             data.branch_length  = None
+            
+#             #data.x = torch.eye(max_num_nodes, num_embedding)
+#             #data.x[data.num_nodes:] = torch.zeros(num_embedding)
+
+#             tree_times = torch.tensor([ts.get_time(node) for node in tree.nodes()]) 
+#             #value = torch.empty(1).uniform_(1e-7, 1e-6).item()
+#             x = torch.diag(tree_times) #+ value
+#             emb = torch.zeros(max_num_nodes, num_embedding)
+#             emb[0:x.shape[0], 0:x.shape[1]] = x
+#             data.x = emb
+            
+#             data.num_nodes = max_num_nodes
+#             data.y = y
+#             data_objects.append(data)
+#     return data_objects
+
 # %% ../nbs/data_generation.ipynb 15
 def calculate_beta_coal_ne_estimate(theta, sample_size, L, alpha, mu_real):
     mu_estimated = theta / ((2*np.sum(1/np.array(range(1, sample_size)))) * L)
@@ -335,10 +412,11 @@ def generate_batch(
 
     # based on num_sim_trees
     tss = [msprime.mutate(ts, rate=mutation_rate) for ts in tss]
-    ne_norm_factors = [calculate_beta_coal_ne_estimate(ts.num_mutations,
-                                                     ts.sample_size, ts.sequence_length,
-                                                      alphas[i], mutation_rate) for i, ts in enumerate(tss)]
-    #ne_norm_factors = demographies.mean(1)
+    #ne_norm_factors = [calculate_beta_coal_ne_estimate(ts.num_mutations,
+    #                                                 ts.sample_size, ts.sequence_length,
+    #                                                  alphas[i], mutation_rate) for i, ts in enumerate(tss)]
+    
+    ne_norm_factors = demographies.mean(1)
         
     population_time, _ = sample_smooth_population_parameters()
     masks = [alternative_coalescent_mask(ts, population_time, num_sim_trees=num_sim_trees, threshold=10, nth_tree=nth_tree) for ts in tss]
@@ -358,7 +436,10 @@ def generate_batch(
             if scaling=="log": data_object.edge_weight = np.log(data_object.edge_weight)
             if scaling=="log_ne": data_object.edge_weight = np.log(data_object.edge_weight  / ne_norm_factor)
             if scaling=="ne": data_object.edge_weight = data_object.edge_weight  / ne_norm_factor
-                
+
+            if scaling=="log": data_object.x = np.log(data_object.x+1)
+            if scaling=="log_ne": data_object.x = np.log((data_object.x+1)  / ne_norm_factor)
+            if scaling=="ne": data_object.x = data_object.x  / ne_norm_factor
         data_objects += ts_data_objects    
     
     dl = DataLoader(data_objects, batch_size=num_trees*batch_size)
@@ -404,7 +485,6 @@ def continously_add_batch_to_queue(
             seed_value += num_processes
         except Exception as e:
             print(e, seed_value, alpha)
-
 
 
 # %% ../nbs/data_generation.ipynb 18
