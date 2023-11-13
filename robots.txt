@@ -1,0 +1,1 @@
+Sitemap: https://kevinkorfmann.github.io/GNNcoalV2/sitemap.xml
